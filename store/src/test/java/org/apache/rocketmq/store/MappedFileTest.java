@@ -52,6 +52,15 @@ public class MappedFileTest {
         assertThat(mappedFile.destroy(1000)).isTrue();
     }
 
+    @Test
+    public void testForce(){
+        /**
+         * MappedFile
+         */
+
+
+    }
+
     @After
     public void destory() {
         File file = new File("target/unit_test_store");

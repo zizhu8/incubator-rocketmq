@@ -209,6 +209,15 @@ public class MappedFile extends ReferenceResource {
             byteBuffer.position(currentPos);
             AppendMessageResult result = null;
             if (messageExt instanceof MessageExtBrokerInner) {
+                /**
+                 * 核心是调用 byteBuffer.put(byte[] data)方法，但是写入数据之后，并不会真正写到文件，只会写到内存；至于什么时候写到文件里面去持久化，由操作系统调度算法决定；
+                 * 或者手动调用mappedByteBuffer.force也可以刷到磁盘去
+                 *
+                 * Mmap方法为我们提供了将文件的部分或全部映射到内存地址空间的能力，
+                 * 同当这块内存区域被写入数据之后[dirty]，操作系统会用一定的算法把这些数据写入到文件中。
+                 * 这样我们实际上就获得了间接操纵内存的能力，而且内存与文件之间的同步是由操作系统完成的，不用我们额外操心。
+                 * 也就是说，只要我们把内存数据块规划好[也就是实现一下C语言的SharedMemory功能]，剩下的事情交给操作系统烦恼就好了。
+                 */
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             } else if (messageExt instanceof MessageExtBatch) {
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
