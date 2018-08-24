@@ -31,7 +31,6 @@ public class SqlConsumer {
 
     public static void main(String[] args) {
         DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("please_rename_unique_group_name_4");
-
         try {
             consumer.subscribe("TopicTest",
                 MessageSelector.bySql("(TAGS is not null and TAGS in ('TagA', 'TagB'))" +
@@ -45,8 +44,8 @@ public class SqlConsumer {
 
             @Override
             public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
-                                                            ConsumeConcurrentlyContext context) {
-                System.out.printf(Thread.currentThread().getName() + " Receive New Messages: " + msgs + "%n");
+                ConsumeConcurrentlyContext context) {
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
                 return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
             }
         });
