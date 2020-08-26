@@ -18,15 +18,21 @@
 package org.apache.rocketmq.broker.plugin;
 
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import org.apache.rocketmq.common.message.MessageExt;
-import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
+import org.apache.rocketmq.common.message.MessageExtBatch;
+import org.apache.rocketmq.store.CommitLogDispatcher;
+import org.apache.rocketmq.store.ConsumeQueue;
 import org.apache.rocketmq.store.GetMessageResult;
 import org.apache.rocketmq.store.MessageExtBrokerInner;
+import org.apache.rocketmq.store.MessageFilter;
 import org.apache.rocketmq.store.MessageStore;
 import org.apache.rocketmq.store.PutMessageResult;
 import org.apache.rocketmq.store.QueryMessageResult;
 import org.apache.rocketmq.store.SelectMappedBufferResult;
+import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 public abstract class AbstractPluginMessageStore implements MessageStore {
     protected MessageStore next = null;
@@ -83,24 +89,34 @@ public abstract class AbstractPluginMessageStore implements MessageStore {
     }
 
     @Override
+    public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
+        return next.asyncPutMessage(msg);
+    }
+
+    @Override
+    public CompletableFuture<PutMessageResult> asyncPutMessages(MessageExtBatch messageExtBatch) {
+        return next.asyncPutMessages(messageExtBatch);
+    }
+
+    @Override
     public GetMessageResult getMessage(String group, String topic, int queueId, long offset,
-        int maxMsgNums, SubscriptionData subscriptionData) {
-        return next.getMessage(group, topic, queueId, offset, maxMsgNums, subscriptionData);
+        int maxMsgNums, final MessageFilter messageFilter) {
+        return next.getMessage(group, topic, queueId, offset, maxMsgNums, messageFilter);
     }
 
     @Override
-    public long getMaxOffsetInQuque(String topic, int queueId) {
-        return next.getMaxOffsetInQuque(topic, queueId);
+    public long getMaxOffsetInQueue(String topic, int queueId) {
+        return next.getMaxOffsetInQueue(topic, queueId);
     }
 
     @Override
-    public long getMinOffsetInQuque(String topic, int queueId) {
-        return next.getMinOffsetInQuque(topic, queueId);
+    public long getMinOffsetInQueue(String topic, int queueId) {
+        return next.getMinOffsetInQueue(topic, queueId);
     }
 
     @Override
-    public long getCommitLogOffsetInQueue(String topic, int queueId, long cqOffset) {
-        return next.getCommitLogOffsetInQueue(topic, queueId, cqOffset);
+    public long getCommitLogOffsetInQueue(String topic, int queueId, long consumeQueueOffset) {
+        return next.getCommitLogOffsetInQueue(topic, queueId, consumeQueueOffset);
     }
 
     @Override
@@ -149,8 +165,8 @@ public abstract class AbstractPluginMessageStore implements MessageStore {
     }
 
     @Override
-    public long getMessageStoreTimeStamp(String topic, int queueId, long offset) {
-        return next.getMessageStoreTimeStamp(topic, queueId, offset);
+    public long getMessageStoreTimeStamp(String topic, int queueId, long consumeQueueOffset) {
+        return next.getMessageStoreTimeStamp(topic, queueId, consumeQueueOffset);
     }
 
     @Override
@@ -169,8 +185,8 @@ public abstract class AbstractPluginMessageStore implements MessageStore {
     }
 
     @Override
-    public void excuteDeleteFilesManualy() {
-        next.excuteDeleteFilesManualy();
+    public void executeDeleteFilesManually() {
+        next.executeDeleteFilesManually();
     }
 
     @Override
@@ -234,4 +250,18 @@ public abstract class AbstractPluginMessageStore implements MessageStore {
         next.setConfirmOffset(phyOffset);
     }
 
+    @Override
+    public LinkedList<CommitLogDispatcher> getDispatcherList() {
+        return next.getDispatcherList();
+    }
+
+    @Override
+    public ConsumeQueue getConsumeQueue(String topic, int queueId) {
+        return next.getConsumeQueue(topic, queueId);
+    }
+
+    @Override
+    public BrokerStatsManager getBrokerStatsManager() {
+        return next.getBrokerStatsManager();
+    };
 }

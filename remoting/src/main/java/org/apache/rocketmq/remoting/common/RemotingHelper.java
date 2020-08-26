@@ -22,6 +22,8 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.remoting.exception.RemotingConnectException;
 import org.apache.rocketmq.remoting.exception.RemotingSendRequestException;
 import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
@@ -30,6 +32,8 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 public class RemotingHelper {
     public static final String ROCKETMQ_REMOTING = "RocketmqRemoting";
     public static final String DEFAULT_CHARSET = "UTF-8";
+
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(ROCKETMQ_REMOTING);
 
     public static String exceptionSimpleDesc(final Throwable e) {
         StringBuffer sb = new StringBuffer();
@@ -48,8 +52,10 @@ public class RemotingHelper {
     }
 
     public static SocketAddress string2SocketAddress(final String addr) {
-        String[] s = addr.split(":");
-        InetSocketAddress isa = new InetSocketAddress(s[0], Integer.parseInt(s[1]));
+        int split = addr.lastIndexOf(":");
+        String host = addr.substring(0, split);
+        String port = addr.substring(split + 1);
+        InetSocketAddress isa = new InetSocketAddress(host, Integer.parseInt(port));
         return isa;
     }
 
@@ -126,7 +132,7 @@ public class RemotingHelper {
                 byteBufferBody.flip();
                 return RemotingCommand.decode(byteBufferBody);
             } catch (IOException e) {
-                e.printStackTrace();
+                log.error("invokeSync failure", e);
 
                 if (sendRequestOK) {
                     throw new RemotingTimeoutException(addr, timeoutMillis);
@@ -164,17 +170,6 @@ public class RemotingHelper {
         return "";
     }
 
-    public static String parseChannelRemoteName(final Channel channel) {
-        if (null == channel) {
-            return "";
-        }
-        final InetSocketAddress remote = (InetSocketAddress) channel.remoteAddress();
-        if (remote != null) {
-            return remote.getAddress().getHostName();
-        }
-        return "";
-    }
-
     public static String parseSocketAddressAddr(SocketAddress socketAddress) {
         if (socketAddress != null) {
             final String addr = socketAddress.toString();
@@ -182,15 +177,6 @@ public class RemotingHelper {
             if (addr.length() > 0) {
                 return addr.substring(1);
             }
-        }
-        return "";
-    }
-
-    public static String parseSocketAddressName(SocketAddress socketAddress) {
-
-        final InetSocketAddress addrs = (InetSocketAddress) socketAddress;
-        if (addrs != null) {
-            return addrs.getAddress().getHostName();
         }
         return "";
     }

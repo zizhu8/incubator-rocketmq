@@ -32,8 +32,27 @@ import org.apache.rocketmq.common.protocol.body.ConsumeStatsList;
 import org.apache.rocketmq.remoting.RPCHook;
 import org.apache.rocketmq.tools.admin.DefaultMQAdminExt;
 import org.apache.rocketmq.tools.command.SubCommand;
+import org.apache.rocketmq.tools.command.SubCommandException;
 
 public class BrokerConsumeStatsSubCommad implements SubCommand {
+
+    private DefaultMQAdminExt defaultMQAdminExt;
+
+    private DefaultMQAdminExt createMQAdminExt(RPCHook rpcHook) throws SubCommandException {
+        if (this.defaultMQAdminExt != null) {
+            return defaultMQAdminExt;
+        } else {
+            defaultMQAdminExt = new DefaultMQAdminExt(rpcHook);
+            defaultMQAdminExt.setInstanceName(Long.toString(System.currentTimeMillis()));
+            try {
+                defaultMQAdminExt.start();
+            }
+            catch (Exception e) {
+                throw new SubCommandException(this.getClass().getSimpleName() + " command failed", e);
+            }
+            return defaultMQAdminExt;
+        }
+    }
 
     @Override
     public String commandName() {
@@ -67,11 +86,10 @@ public class BrokerConsumeStatsSubCommad implements SubCommand {
     }
 
     @Override
-    public void execute(CommandLine commandLine, Options options, RPCHook rpcHook) {
-        DefaultMQAdminExt defaultMQAdminExt = new DefaultMQAdminExt(rpcHook);
-        defaultMQAdminExt.setInstanceName(Long.toString(System.currentTimeMillis()));
+    public void execute(CommandLine commandLine, Options options, RPCHook rpcHook) throws SubCommandException {
         try {
-            defaultMQAdminExt.start();
+            defaultMQAdminExt =  createMQAdminExt(rpcHook);
+
             String brokerAddr = commandLine.getOptionValue('b').trim();
             boolean isOrder = false;
             long timeoutMillis = 50000;
@@ -134,7 +152,7 @@ public class BrokerConsumeStatsSubCommad implements SubCommand {
             }
             System.out.printf("%nDiff Total: %d%n", consumeStatsList.getTotalDiff());
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new SubCommandException(this.getClass().getSimpleName() + " command failed", e);
         } finally {
             defaultMQAdminExt.shutdown();
         }

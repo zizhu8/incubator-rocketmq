@@ -20,20 +20,21 @@ package org.apache.rocketmq.common.stats;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.rocketmq.common.UtilAll;
-import org.slf4j.Logger;
+import org.apache.rocketmq.logging.InternalLogger;
 
 public class StatsItemSet {
-    private final ConcurrentHashMap<String/* key */, StatsItem> statsItemTable =
+    private final ConcurrentMap<String/* key */, StatsItem> statsItemTable =
         new ConcurrentHashMap<String, StatsItem>(128);
 
     private final String statsName;
     private final ScheduledExecutorService scheduledExecutorService;
-    private final Logger log;
+    private final InternalLogger log;
 
-    public StatsItemSet(String statsName, ScheduledExecutorService scheduledExecutorService, Logger log) {
+    public StatsItemSet(String statsName, ScheduledExecutorService scheduledExecutorService, InternalLogger log) {
         this.statsName = statsName;
         this.scheduledExecutorService = scheduledExecutorService;
         this.log = log;
@@ -80,7 +81,7 @@ public class StatsItemSet {
                 } catch (Throwable ignored) {
                 }
             }
-        }, Math.abs(UtilAll.computNextMinutesTimeMillis() - System.currentTimeMillis()), 1000 * 60, TimeUnit.MILLISECONDS);
+        }, Math.abs(UtilAll.computeNextMinutesTimeMillis() - System.currentTimeMillis()), 1000 * 60, TimeUnit.MILLISECONDS);
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
@@ -90,7 +91,7 @@ public class StatsItemSet {
                 } catch (Throwable ignored) {
                 }
             }
-        }, Math.abs(UtilAll.computNextHourTimeMillis() - System.currentTimeMillis()), 1000 * 60 * 60, TimeUnit.MILLISECONDS);
+        }, Math.abs(UtilAll.computeNextHourTimeMillis() - System.currentTimeMillis()), 1000 * 60 * 60, TimeUnit.MILLISECONDS);
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
@@ -100,7 +101,7 @@ public class StatsItemSet {
                 } catch (Throwable ignored) {
                 }
             }
-        }, Math.abs(UtilAll.computNextMorningTimeMillis() - System.currentTimeMillis()), 1000 * 60 * 60 * 24, TimeUnit.MILLISECONDS);
+        }, Math.abs(UtilAll.computeNextMorningTimeMillis() - System.currentTimeMillis()), 1000 * 60 * 60 * 24, TimeUnit.MILLISECONDS);
     }
 
     private void samplingInSeconds() {
@@ -157,14 +158,69 @@ public class StatsItemSet {
         statsItem.getTimes().addAndGet(incTimes);
     }
 
+    public void addRTValue(final String statsKey, final int incValue, final int incTimes) {
+        StatsItem statsItem = this.getAndCreateRTStatsItem(statsKey);
+        statsItem.getValue().addAndGet(incValue);
+        statsItem.getTimes().addAndGet(incTimes);
+    }
+
+    public void delValue(final String statsKey) {
+        StatsItem statsItem = this.statsItemTable.get(statsKey);
+        if (null != statsItem) {
+            this.statsItemTable.remove(statsKey);
+        }
+    }
+
+    public void delValueByPrefixKey(final String statsKey, String separator) {
+        Iterator<Entry<String, StatsItem>> it = this.statsItemTable.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<String, StatsItem> next = it.next();
+            if (next.getKey().startsWith(statsKey + separator)) {
+                it.remove();
+            }
+        }
+    }
+
+    public void delValueByInfixKey(final String statsKey, String separator) {
+        Iterator<Entry<String, StatsItem>> it = this.statsItemTable.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<String, StatsItem> next = it.next();
+            if (next.getKey().contains(separator + statsKey + separator)) {
+                it.remove();
+            }
+        }
+    }
+
+    public void delValueBySuffixKey(final String statsKey, String separator) {
+        Iterator<Entry<String, StatsItem>> it = this.statsItemTable.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<String, StatsItem> next = it.next();
+            if (next.getKey().endsWith(separator + statsKey)) {
+                it.remove();
+            }
+        }
+    }
+
     public StatsItem getAndCreateStatsItem(final String statsKey) {
+        return getAndCreateItem(statsKey, false);
+    }
+
+    public StatsItem getAndCreateRTStatsItem(final String statsKey) {
+        return getAndCreateItem(statsKey, true);
+    }
+
+    public StatsItem getAndCreateItem(final String statsKey, boolean rtItem) {
         StatsItem statsItem = this.statsItemTable.get(statsKey);
         if (null == statsItem) {
-            statsItem = new StatsItem(this.statsName, statsKey, this.scheduledExecutorService, this.log);
-            StatsItem prev = this.statsItemTable.put(statsKey, statsItem);
+            if (rtItem) {
+                statsItem = new RTStatsItem(this.statsName, statsKey, this.scheduledExecutorService, this.log);
+            } else {
+                statsItem = new StatsItem(this.statsName, statsKey, this.scheduledExecutorService, this.log);
+            }
+            StatsItem prev = this.statsItemTable.putIfAbsent(statsKey, statsItem);
 
-            if (null == prev) {
-
+            if (null != prev) {
+                statsItem = prev;
                 // statsItem.init();
             }
         }

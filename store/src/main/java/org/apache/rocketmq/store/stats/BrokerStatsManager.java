@@ -21,11 +21,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.rocketmq.common.ThreadFactoryImpl;
 import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.common.stats.MomentStatsItemSet;
 import org.apache.rocketmq.common.stats.StatsItem;
 import org.apache.rocketmq.common.stats.StatsItemSet;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class BrokerStatsManager {
 
@@ -60,8 +60,8 @@ public class BrokerStatsManager {
     /**
      * read disk follow stats
      */
-    private static final Logger log = LoggerFactory.getLogger(LoggerName.ROCKETMQ_STATS_LOGGER_NAME);
-    private static final Logger COMMERCIAL_LOG = LoggerFactory.getLogger(LoggerName.COMMERCIAL_LOGGER_NAME);
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.ROCKETMQ_STATS_LOGGER_NAME);
+    private static final InternalLogger COMMERCIAL_LOG = InternalLoggerFactory.getLogger(LoggerName.COMMERCIAL_LOGGER_NAME);
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "BrokerStatsThread"));
     private final ScheduledExecutorService commercialExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
@@ -109,6 +109,7 @@ public class BrokerStatsManager {
 
     public void shutdown() {
         this.scheduledExecutorService.shutdown();
+        this.commercialExecutor.shutdown();
     }
 
     public StatsItem getStatsItem(final String statsName, final String statsKey) {
@@ -120,8 +121,32 @@ public class BrokerStatsManager {
         return null;
     }
 
+    public void onTopicDeleted(final String topic) {
+        this.statsTable.get(TOPIC_PUT_NUMS).delValue(topic);
+        this.statsTable.get(TOPIC_PUT_SIZE).delValue(topic);
+        this.statsTable.get(GROUP_GET_NUMS).delValueByPrefixKey(topic, "@");
+        this.statsTable.get(GROUP_GET_SIZE).delValueByPrefixKey(topic, "@");
+        this.statsTable.get(SNDBCK_PUT_NUMS).delValueByPrefixKey(topic, "@");
+        this.statsTable.get(GROUP_GET_LATENCY).delValueByInfixKey(topic, "@");
+        this.momentStatsItemSetFallSize.delValueByInfixKey(topic, "@");
+        this.momentStatsItemSetFallTime.delValueByInfixKey(topic, "@");
+    }
+
+    public void onGroupDeleted(final String group) {
+        this.statsTable.get(GROUP_GET_NUMS).delValueBySuffixKey(group, "@");
+        this.statsTable.get(GROUP_GET_SIZE).delValueBySuffixKey(group, "@");
+        this.statsTable.get(SNDBCK_PUT_NUMS).delValueBySuffixKey(group, "@");
+        this.statsTable.get(GROUP_GET_LATENCY).delValueBySuffixKey(group, "@");
+        this.momentStatsItemSetFallSize.delValueBySuffixKey(group, "@");
+        this.momentStatsItemSetFallTime.delValueBySuffixKey(group, "@");
+    }
+
     public void incTopicPutNums(final String topic) {
         this.statsTable.get(TOPIC_PUT_NUMS).addValue(topic, 1, 1);
+    }
+
+    public void incTopicPutNums(final String topic, int num, int times) {
+        this.statsTable.get(TOPIC_PUT_NUMS).addValue(topic, num, times);
     }
 
     public void incTopicPutSize(final String topic, final int size) {
@@ -155,6 +180,10 @@ public class BrokerStatsManager {
         this.statsTable.get(BROKER_PUT_NUMS).getAndCreateStatsItem(this.clusterName).getValue().incrementAndGet();
     }
 
+    public void incBrokerPutNums(final int incValue) {
+        this.statsTable.get(BROKER_PUT_NUMS).getAndCreateStatsItem(this.clusterName).getValue().addAndGet(incValue);
+    }
+
     public void incBrokerGetNums(final int incValue) {
         this.statsTable.get(BROKER_GET_NUMS).getAndCreateStatsItem(this.clusterName).getValue().addAndGet(incValue);
     }
@@ -169,12 +198,14 @@ public class BrokerStatsManager {
         return this.statsTable.get(GROUP_GET_NUMS).getStatsDataInMinute(statsKey).getTps();
     }
 
-    public void recordDiskFallBehindTime(final String group, final String topic, final int queueId, final long fallBehind) {
+    public void recordDiskFallBehindTime(final String group, final String topic, final int queueId,
+        final long fallBehind) {
         final String statsKey = String.format("%d@%s@%s", queueId, topic, group);
         this.momentStatsItemSetFallTime.getAndCreateStatsItem(statsKey).getValue().set(fallBehind);
     }
 
-    public void recordDiskFallBehindSize(final String group, final String topic, final int queueId, final long fallBehind) {
+    public void recordDiskFallBehindSize(final String group, final String topic, final int queueId,
+        final long fallBehind) {
         final String statsKey = String.format("%d@%s@%s", queueId, topic, group);
         this.momentStatsItemSetFallSize.getAndCreateStatsItem(statsKey).getValue().set(fallBehind);
     }

@@ -23,12 +23,12 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.util.List;
 import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.MappedFile;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class IndexFile {
-    private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int hashSlotSize = 4;
     private static int indexSize = 20;
     private static int invalidIndex = 0;
@@ -77,7 +77,7 @@ public class IndexFile {
             this.indexHeader.updateByteBuffer();
             this.mappedByteBuffer.force();
             this.mappedFile.release();
-            log.info("flush index file eclipse time(ms) " + (System.currentTimeMillis() - beginTime));
+            log.info("flush index file elapsed time(ms) " + (System.currentTimeMillis() - beginTime));
         }
     }
 
@@ -134,7 +134,9 @@ public class IndexFile {
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
 
-                this.indexHeader.incHashSlotCount();
+                if (invalidIndex == slotValue) {
+                    this.indexHeader.incHashSlotCount();
+                }
                 this.indexHeader.incIndexCount();
                 this.indexHeader.setEndPhyOffset(phyOffset);
                 this.indexHeader.setEndTimestamp(storeTimestamp);
@@ -147,7 +149,7 @@ public class IndexFile {
                     try {
                         fileLock.release();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        log.error("Failed to release the lock", e);
                     }
                 }
             }
@@ -208,9 +210,8 @@ public class IndexFile {
 
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()
                     || this.indexHeader.getIndexCount() <= 1) {
-                    // TODO NOTFOUND
                 } else {
-                    for (int nextIndexToRead = slotValue;;) {
+                    for (int nextIndexToRead = slotValue; ; ) {
                         if (phyOffsets.size() >= maxNum) {
                             break;
                         }
@@ -254,7 +255,7 @@ public class IndexFile {
                     try {
                         fileLock.release();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        log.error("Failed to release the lock", e);
                     }
                 }
 

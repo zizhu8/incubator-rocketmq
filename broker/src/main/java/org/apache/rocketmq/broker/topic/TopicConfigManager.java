@@ -16,12 +16,12 @@
  */
 package org.apache.rocketmq.broker.topic;
 
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -36,18 +36,20 @@ import org.apache.rocketmq.common.constant.PermName;
 import org.apache.rocketmq.common.protocol.body.KVTable;
 import org.apache.rocketmq.common.protocol.body.TopicConfigSerializeWrapper;
 import org.apache.rocketmq.common.sysflag.TopicSysFlag;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.rocketmq.common.topic.TopicValidator;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
 
 public class TopicConfigManager extends ConfigManager {
-    private static final Logger LOG = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final long LOCK_TIMEOUT_MILLIS = 3000;
+    private static final int SCHEDULE_TOPIC_QUEUE_NUM = 18;
+
     private transient final Lock lockTopicConfigTable = new ReentrantLock();
 
-    private final ConcurrentHashMap<String, TopicConfig> topicConfigTable =
+    private final ConcurrentMap<String, TopicConfig> topicConfigTable =
         new ConcurrentHashMap<String, TopicConfig>(1024);
     private final DataVersion dataVersion = new DataVersion();
-    private final Set<String> systemTopicList = new HashSet<String>();
     private transient BrokerController brokerController;
 
     public TopicConfigManager() {
@@ -56,20 +58,18 @@ public class TopicConfigManager extends ConfigManager {
     public TopicConfigManager(BrokerController brokerController) {
         this.brokerController = brokerController;
         {
-            // MixAll.SELF_TEST_TOPIC
-            String topic = MixAll.SELF_TEST_TOPIC;
+            String topic = TopicValidator.RMQ_SYS_SELF_TEST_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
-            this.systemTopicList.add(topic);
+            TopicValidator.addSystemTopic(topic);
             topicConfig.setReadQueueNums(1);
             topicConfig.setWriteQueueNums(1);
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
         {
-            // MixAll.DEFAULT_TOPIC
             if (this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
-                String topic = MixAll.DEFAULT_TOPIC;
+                String topic = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
                 TopicConfig topicConfig = new TopicConfig(topic);
-                this.systemTopicList.add(topic);
+                TopicValidator.addSystemTopic(topic);
                 topicConfig.setReadQueueNums(this.brokerController.getBrokerConfig()
                     .getDefaultTopicQueueNums());
                 topicConfig.setWriteQueueNums(this.brokerController.getBrokerConfig()
@@ -80,10 +80,9 @@ public class TopicConfigManager extends ConfigManager {
             }
         }
         {
-            // MixAll.BENCHMARK_TOPIC
-            String topic = MixAll.BENCHMARK_TOPIC;
+            String topic = TopicValidator.RMQ_SYS_BENCHMARK_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
-            this.systemTopicList.add(topic);
+            TopicValidator.addSystemTopic(topic);
             topicConfig.setReadQueueNums(1024);
             topicConfig.setWriteQueueNums(1024);
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
@@ -92,7 +91,7 @@ public class TopicConfigManager extends ConfigManager {
 
             String topic = this.brokerController.getBrokerConfig().getBrokerClusterName();
             TopicConfig topicConfig = new TopicConfig(topic);
-            this.systemTopicList.add(topic);
+            TopicValidator.addSystemTopic(topic);
             int perm = PermName.PERM_INHERIT;
             if (this.brokerController.getBrokerConfig().isClusterTopicEnable()) {
                 perm |= PermName.PERM_READ | PermName.PERM_WRITE;
@@ -104,7 +103,7 @@ public class TopicConfigManager extends ConfigManager {
 
             String topic = this.brokerController.getBrokerConfig().getBrokerName();
             TopicConfig topicConfig = new TopicConfig(topic);
-            this.systemTopicList.add(topic);
+            TopicValidator.addSystemTopic(topic);
             int perm = PermName.PERM_INHERIT;
             if (this.brokerController.getBrokerConfig().isBrokerTopicEnable()) {
                 perm |= PermName.PERM_READ | PermName.PERM_WRITE;
@@ -115,26 +114,39 @@ public class TopicConfigManager extends ConfigManager {
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
         {
-            // MixAll.OFFSET_MOVED_EVENT
-            String topic = MixAll.OFFSET_MOVED_EVENT;
+            String topic = TopicValidator.RMQ_SYS_OFFSET_MOVED_EVENT;
             TopicConfig topicConfig = new TopicConfig(topic);
-            this.systemTopicList.add(topic);
+            TopicValidator.addSystemTopic(topic);
             topicConfig.setReadQueueNums(1);
             topicConfig.setWriteQueueNums(1);
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
-    }
-
-    public boolean isSystemTopic(final String topic) {
-        return this.systemTopicList.contains(topic);
-    }
-
-    public Set<String> getSystemTopic() {
-        return this.systemTopicList;
-    }
-
-    public boolean isTopicCanSendMessage(final String topic) {
-        return !topic.equals(MixAll.DEFAULT_TOPIC);
+        {
+            String topic = TopicValidator.RMQ_SYS_SCHEDULE_TOPIC;
+            TopicConfig topicConfig = new TopicConfig(topic);
+            TopicValidator.addSystemTopic(topic);
+            topicConfig.setReadQueueNums(SCHEDULE_TOPIC_QUEUE_NUM);
+            topicConfig.setWriteQueueNums(SCHEDULE_TOPIC_QUEUE_NUM);
+            this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
+        }
+        {
+            if (this.brokerController.getBrokerConfig().isTraceTopicEnable()) {
+                String topic = this.brokerController.getBrokerConfig().getMsgTraceTopicName();
+                TopicConfig topicConfig = new TopicConfig(topic);
+                TopicValidator.addSystemTopic(topic);
+                topicConfig.setReadQueueNums(1);
+                topicConfig.setWriteQueueNums(1);
+                this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
+            }
+        }
+        {
+            String topic = this.brokerController.getBrokerConfig().getBrokerClusterName() + "_" + MixAll.REPLY_TOPIC_POSTFIX;
+            TopicConfig topicConfig = new TopicConfig(topic);
+            TopicValidator.addSystemTopic(topic);
+            topicConfig.setReadQueueNums(1);
+            topicConfig.setWriteQueueNums(1);
+            this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
+        }
     }
 
     public TopicConfig selectTopicConfig(final String topic) {
@@ -155,7 +167,7 @@ public class TopicConfigManager extends ConfigManager {
 
                     TopicConfig defaultTopicConfig = this.topicConfigTable.get(defaultTopic);
                     if (defaultTopicConfig != null) {
-                        if (defaultTopic.equals(MixAll.DEFAULT_TOPIC)) {
+                        if (defaultTopic.equals(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
                             if (!this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                                 defaultTopicConfig.setPerm(PermName.PERM_READ | PermName.PERM_WRITE);
                             }
@@ -180,15 +192,17 @@ public class TopicConfigManager extends ConfigManager {
                             topicConfig.setTopicSysFlag(topicSysFlag);
                             topicConfig.setTopicFilterType(defaultTopicConfig.getTopicFilterType());
                         } else {
-                            LOG.warn("Create new topic failed, because the default topic[{}] has no perm [{}] producer:[{}]",
-                                    defaultTopic, defaultTopicConfig.getPerm(), remoteAddress);
+                            log.warn("Create new topic failed, because the default topic[{}] has no perm [{}] producer:[{}]",
+                                defaultTopic, defaultTopicConfig.getPerm(), remoteAddress);
                         }
                     } else {
-                        LOG.warn("Create new topic failed, because the default topic[{}] not exist. producer:[{}]", defaultTopic, remoteAddress);
+                        log.warn("Create new topic failed, because the default topic[{}] not exist. producer:[{}]",
+                            defaultTopic, remoteAddress);
                     }
 
                     if (topicConfig != null) {
-                        LOG.info("Create new topic by default topic:[{}] config:[{}] producer:[{}]", defaultTopic, topicConfig, remoteAddress);
+                        log.info("Create new topic by default topic:[{}] config:[{}] producer:[{}]",
+                            defaultTopic, topicConfig, remoteAddress);
 
                         this.topicConfigTable.put(topic, topicConfig);
 
@@ -203,11 +217,11 @@ public class TopicConfigManager extends ConfigManager {
                 }
             }
         } catch (InterruptedException e) {
-            LOG.error("createTopicInSendMessageMethod exception", e);
+            log.error("createTopicInSendMessageMethod exception", e);
         }
 
         if (createNew) {
-            this.brokerController.registerBrokerAll(false, true);
+            this.brokerController.registerBrokerAll(false, true, true);
         }
 
         return topicConfig;
@@ -237,7 +251,7 @@ public class TopicConfigManager extends ConfigManager {
                     topicConfig.setPerm(perm);
                     topicConfig.setTopicSysFlag(topicSysFlag);
 
-                    LOG.info("create new topic {}", topicConfig);
+                    log.info("create new topic {}", topicConfig);
                     this.topicConfigTable.put(topic, topicConfig);
                     createNew = true;
                     this.dataVersion.nextVersion();
@@ -247,11 +261,51 @@ public class TopicConfigManager extends ConfigManager {
                 }
             }
         } catch (InterruptedException e) {
-            LOG.error("createTopicInSendMessageBackMethod exception", e);
+            log.error("createTopicInSendMessageBackMethod exception", e);
         }
 
         if (createNew) {
-            this.brokerController.registerBrokerAll(false, true);
+            this.brokerController.registerBrokerAll(false, true, true);
+        }
+
+        return topicConfig;
+    }
+
+    public TopicConfig createTopicOfTranCheckMaxTime(final int clientDefaultTopicQueueNums, final int perm) {
+        TopicConfig topicConfig = this.topicConfigTable.get(TopicValidator.RMQ_SYS_TRANS_CHECK_MAX_TIME_TOPIC);
+        if (topicConfig != null)
+            return topicConfig;
+
+        boolean createNew = false;
+
+        try {
+            if (this.lockTopicConfigTable.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                try {
+                    topicConfig = this.topicConfigTable.get(TopicValidator.RMQ_SYS_TRANS_CHECK_MAX_TIME_TOPIC);
+                    if (topicConfig != null)
+                        return topicConfig;
+
+                    topicConfig = new TopicConfig(TopicValidator.RMQ_SYS_TRANS_CHECK_MAX_TIME_TOPIC);
+                    topicConfig.setReadQueueNums(clientDefaultTopicQueueNums);
+                    topicConfig.setWriteQueueNums(clientDefaultTopicQueueNums);
+                    topicConfig.setPerm(perm);
+                    topicConfig.setTopicSysFlag(0);
+
+                    log.info("create new topic {}", topicConfig);
+                    this.topicConfigTable.put(TopicValidator.RMQ_SYS_TRANS_CHECK_MAX_TIME_TOPIC, topicConfig);
+                    createNew = true;
+                    this.dataVersion.nextVersion();
+                    this.persist();
+                } finally {
+                    this.lockTopicConfigTable.unlock();
+                }
+            }
+        } catch (InterruptedException e) {
+            log.error("create TRANS_CHECK_MAX_TIME_TOPIC exception", e);
+        }
+
+        if (createNew) {
+            this.brokerController.registerBrokerAll(false, true, true);
         }
 
         return topicConfig;
@@ -268,7 +322,7 @@ public class TopicConfigManager extends ConfigManager {
                 topicConfig.setTopicSysFlag(TopicSysFlag.clearUnitFlag(oldTopicSysFlag));
             }
 
-            LOG.info("update topic sys flag. oldTopicSysFlag={}, newTopicSysFlag", oldTopicSysFlag,
+            log.info("update topic sys flag. oldTopicSysFlag={}, newTopicSysFlag", oldTopicSysFlag,
                 topicConfig.getTopicSysFlag());
 
             this.topicConfigTable.put(topic, topicConfig);
@@ -276,7 +330,7 @@ public class TopicConfigManager extends ConfigManager {
             this.dataVersion.nextVersion();
 
             this.persist();
-            this.brokerController.registerBrokerAll(false, true);
+            this.brokerController.registerBrokerAll(false, true, true);
         }
     }
 
@@ -288,7 +342,7 @@ public class TopicConfigManager extends ConfigManager {
                 topicConfig.setTopicSysFlag(TopicSysFlag.setUnitSubFlag(oldTopicSysFlag));
             }
 
-            LOG.info("update topic sys flag. oldTopicSysFlag={}, newTopicSysFlag", oldTopicSysFlag,
+            log.info("update topic sys flag. oldTopicSysFlag={}, newTopicSysFlag", oldTopicSysFlag,
                 topicConfig.getTopicSysFlag());
 
             this.topicConfigTable.put(topic, topicConfig);
@@ -296,16 +350,16 @@ public class TopicConfigManager extends ConfigManager {
             this.dataVersion.nextVersion();
 
             this.persist();
-            this.brokerController.registerBrokerAll(false, true);
+            this.brokerController.registerBrokerAll(false, true, true);
         }
     }
 
     public void updateTopicConfig(final TopicConfig topicConfig) {
         TopicConfig old = this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         if (old != null) {
-            LOG.info("update topic config, old:[{}] new:[{}]", old, topicConfig);
+            log.info("update topic config, old:[{}] new:[{}]", old, topicConfig);
         } else {
-            LOG.info("create new topic [{}]", topicConfig);
+            log.info("create new topic [{}]", topicConfig);
         }
 
         this.dataVersion.nextVersion();
@@ -323,7 +377,7 @@ public class TopicConfigManager extends ConfigManager {
                 if (topicConfig != null && !topicConfig.isOrder()) {
                     topicConfig.setOrder(true);
                     isChange = true;
-                    LOG.info("update order topic config, topic={}, order={}", topic, true);
+                    log.info("update order topic config, topic={}, order={}", topic, true);
                 }
             }
 
@@ -334,7 +388,7 @@ public class TopicConfigManager extends ConfigManager {
                     if (topicConfig.isOrder()) {
                         topicConfig.setOrder(false);
                         isChange = true;
-                        LOG.info("update order topic config, topic={}, order={}", topic, false);
+                        log.info("update order topic config, topic={}, order={}", topic, false);
                     }
                 }
             }
@@ -358,11 +412,11 @@ public class TopicConfigManager extends ConfigManager {
     public void deleteTopicConfig(final String topic) {
         TopicConfig old = this.topicConfigTable.remove(topic);
         if (old != null) {
-            LOG.info("Delete topic config OK, topic:{}", old);
+            log.info("delete topic config OK, topic: {}", old);
             this.dataVersion.nextVersion();
             this.persist();
         } else {
-            LOG.warn("Delete topic config failed, topic:{} not exist", topic);
+            log.warn("delete topic config failed, topic: {} not exists", topic);
         }
     }
 
@@ -381,7 +435,7 @@ public class TopicConfigManager extends ConfigManager {
     @Override
     public String configFilePath() {
         return BrokerPathConfigHelper.getTopicConfigPath(this.brokerController.getMessageStoreConfig()
-                .getStorePathRootDir());
+            .getStorePathRootDir());
     }
 
     @Override
@@ -408,7 +462,7 @@ public class TopicConfigManager extends ConfigManager {
         Iterator<Entry<String, TopicConfig>> it = tcs.getTopicConfigTable().entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, TopicConfig> next = it.next();
-            LOG.info("load exist local topic, {}", next.getValue().toString());
+            log.info("load exist local topic, {}", next.getValue().toString());
         }
     }
 
@@ -416,7 +470,7 @@ public class TopicConfigManager extends ConfigManager {
         return dataVersion;
     }
 
-    public ConcurrentHashMap<String, TopicConfig> getTopicConfigTable() {
+    public ConcurrentMap<String, TopicConfig> getTopicConfigTable() {
         return topicConfigTable;
     }
 }
